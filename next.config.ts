@@ -6,7 +6,6 @@ const repoName = "wire_finder_map";
 const nextConfig: NextConfig = {
   output: "export",
   basePath: isProd ? `/${repoName}` : "",
-  assetPrefix: isProd ? `/${repoName}/` : "",
   images: {
     unoptimized: true,
   },
