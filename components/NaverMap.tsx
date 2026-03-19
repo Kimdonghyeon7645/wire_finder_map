@@ -11,7 +11,14 @@ interface NaverMapProps {
   onPipOpen?: () => void;
 }
 
-export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom = 13, className = "w-full h-full", pipOpen = false, onPipClose, onPipOpen }: NaverMapProps) {
+export default function NaverMap({
+  center = { lat: 37.5665, lng: 126.978 },
+  zoom = 13,
+  className = "w-full h-full",
+  pipOpen = false,
+  onPipClose,
+  onPipOpen,
+}: NaverMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const panoRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<naver.maps.Map | null>(null);
@@ -19,7 +26,9 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
   const panoMoveListenerRef = useRef<naver.maps.MapEventListener | null>(null);
   const markerRef = useRef<naver.maps.Marker | null>(null);
   const onPipOpenRef = useRef(onPipOpen);
-  useEffect(() => { onPipOpenRef.current = onPipOpen; });
+  useEffect(() => {
+    onPipOpenRef.current = onPipOpen;
+  });
 
   const [hasPano, setHasPano] = useState(false);
 
@@ -45,11 +54,8 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
         if (!panoRef.current) return;
 
         function placeMarker(coord: naver.maps.LatLng) {
-          if (!markerRef.current) {
-            markerRef.current = new naver.maps.Marker({ position: coord, map: map ?? undefined });
-          } else {
-            markerRef.current.setPosition(coord);
-          }
+          if (!markerRef.current) markerRef.current = new naver.maps.Marker({ position: coord, map: map ?? undefined });
+          else markerRef.current.setPosition(coord);
         }
 
         if (!panoInstanceRef.current) {
@@ -76,8 +82,13 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
     if (typeof naver !== "undefined" && naver.maps) {
       initMap();
     } else {
-      window.addEventListener("load", initMap, { once: true });
-      return () => window.removeEventListener("load", initMap);
+      const id = setInterval(() => {
+        if (typeof naver !== "undefined" && naver.maps) {
+          clearInterval(id);
+          initMap();
+        }
+      }, 50);
+      return () => clearInterval(id);
     }
   }, [center.lat, center.lng, zoom]);
 
@@ -95,10 +106,16 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
 
   return (
     <div className={`relative ${className}`}>
+      <div className="absolute h-full w-full flex flex-col justify-center items-center">
+        <div className="text-xl">지도를 불러오는 중입니다...</div>
+        <div className="text-md">최대 몇초간 로딩이 소요될 수 있습니다.</div>
+      </div>
       <div ref={mapRef} className="w-full h-full" />
 
       {/* 거리뷰 PiP 패널 */}
-      <div className={`w-160 h-120 absolute bottom-3 right-3 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${pipOpen ? "" : "invisible pointer-events-none"}`}>
+      <div
+        className={`w-160 h-150 absolute bottom-3 right-3 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${pipOpen ? "" : "invisible pointer-events-none"}`}
+      >
         <div className="absolute inset-0 h-5 w-full flex justify-between">
           <div className="pt-0.5 pl-3">거리뷰</div>
           <button type="button" onClick={closePip} className="px-2 py-2 font-bold leading-3 rounded-md cursor-pointer hover:bg-[#eee]">
