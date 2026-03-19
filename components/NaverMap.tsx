@@ -6,17 +6,20 @@ interface NaverMapProps {
   center?: { lat: number; lng: number };
   zoom?: number;
   className?: string;
+  roadviewOpen?: boolean;
+  onRoadviewClose?: () => void;
 }
 
-export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom = 13, className = "w-full h-full" }: NaverMapProps) {
+export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom = 13, className = "w-full h-full", roadviewOpen = false, onRoadviewClose }: NaverMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const panoRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<naver.maps.Map | null>(null);
   const streetLayerRef = useRef<naver.maps.StreetLayer | null>(null);
   const panoInstanceRef = useRef<naver.maps.Panorama | null>(null);
   const clickListenerRef = useRef<naver.maps.MapEventListener | null>(null);
+  const panoMoveListenerRef = useRef<naver.maps.MapEventListener | null>(null);
+  const markerRef = useRef<naver.maps.Marker | null>(null);
 
-  const [roadviewOpen, setRoadviewOpen] = useState(false);
   const [hasPano, setHasPano] = useState(false);
 
   useEffect(() => {
@@ -50,6 +53,14 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
     const streetLayer = streetLayerRef.current;
     if (!map || !streetLayer) return;
 
+    function placeMarker(coord: naver.maps.LatLng) {
+      if (!markerRef.current) {
+        markerRef.current = new naver.maps.Marker({ position: coord, map: map ?? undefined });
+      } else {
+        markerRef.current.setPosition(coord);
+      }
+    }
+
     if (roadviewOpen) {
       streetLayer.setMap(map);
 
@@ -65,10 +76,15 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
               position: naver.maps.Position.TOP_RIGHT,
             },
           });
+          panoMoveListenerRef.current = naver.maps.Event.addListener(panoInstanceRef.current, "position_changed", () => {
+            const pos = panoInstanceRef.current?.getPosition();
+            if (pos) placeMarker(pos);
+          });
           setHasPano(true);
         } else {
           panoInstanceRef.current.setPosition(e.coord as naver.maps.LatLng);
         }
+        placeMarker(e.coord as naver.maps.LatLng);
       });
     } else {
       streetLayer.setMap(null);
@@ -81,28 +97,23 @@ export default function NaverMap({ center = { lat: 37.5665, lng: 126.978 }, zoom
   }, [roadviewOpen]);
 
   function closeRoadview() {
-    setRoadviewOpen(false);
     setHasPano(false);
+    if (panoMoveListenerRef.current) {
+      naver.maps.Event.removeListener(panoMoveListenerRef.current);
+      panoMoveListenerRef.current = null;
+    }
     panoInstanceRef.current = null;
+    markerRef.current?.setMap(null);
+    markerRef.current = null;
+    onRoadviewClose?.();
   }
 
   return (
     <div className={`relative ${className}`}>
       <div ref={mapRef} className="w-full h-full" />
 
-      {/* 거리뷰 토글 버튼 */}
-      <button
-        type="button"
-        onClick={() => setRoadviewOpen((prev) => !prev)}
-        className={`absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded px-3 py-2 text-sm font-medium shadow-xl border transition-colors ${
-          roadviewOpen ? "bg-blue-600 text-white" : "bg-white text-[#333] hover:bg-gray-100"
-        }`}
-      >
-        거리뷰
-      </button>
-
       {/* 거리뷰 PiP 패널 - DOM에 항상 유지하고 CSS로 show/hide (unmount 시 지도 재로드 방지) */}
-      <div className={`w-160 h-120 absolute bottom-16 right-4 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${roadviewOpen ? "" : "hidden"}`}>
+      <div className={`w-160 h-120 absolute bottom-3 right-3 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${roadviewOpen ? "" : "hidden"}`}>
         <div className="absolute inset-0 h-5 w-full flex justify-between">
           <div className="pt-0.5 pl-3">거리뷰</div>
           <button type="button" onClick={closeRoadview} className="px-2 py-2 font-bold leading-3 rounded-md cursor-pointer hover:bg-[#eee]">
