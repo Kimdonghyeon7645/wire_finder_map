@@ -77,7 +77,7 @@ export default function Home() {
 
       <main className="relative flex-1 min-w-0 h-screen">
         <SidebarTrigger className="absolute top-2 left-2 z-10 bg-white p-4 border-black/10 shadow-xl" />
-        <NaverMap className="w-full h-full" roadviewOpen={roadviewOpen} onRoadviewClose={() => setRoadviewOpen(false)} />
+        <NaverMap className="w-full h-full" pipOpen={roadviewOpen} onPipClose={() => setRoadviewOpen(false)} onPipOpen={() => setRoadviewOpen(true)} />
       </main>
     </SidebarProvider>
   );
