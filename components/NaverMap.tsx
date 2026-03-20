@@ -7,6 +7,7 @@ interface NaverMapProps {
   zoom?: number;
   className?: string;
   pipOpen?: boolean;
+  darkMode?: boolean;
   onPipClose?: () => void;
   onPipOpen?: () => void;
 }
@@ -16,6 +17,7 @@ export default function NaverMap({
   zoom = 13,
   className = "w-full h-full",
   pipOpen = false,
+  darkMode = false,
   onPipClose,
   onPipOpen,
 }: NaverMapProps) {
@@ -110,8 +112,11 @@ export default function NaverMap({
         <div className="text-xl">지도를 불러오는 중입니다...</div>
         <div className="text-md">최대 몇초간 로딩이 소요될 수 있습니다.</div>
       </div>
-      <div ref={mapRef} className="w-full h-full" />
-
+      <div
+        ref={mapRef}
+        className="w-full h-full"
+        style={darkMode ? { filter: "invert(90%) hue-rotate(180deg)" } : undefined}
+      />
       {/* 거리뷰 PiP 패널 */}
       <div
         className={`w-160 h-150 absolute bottom-3 right-3 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${pipOpen ? "" : "invisible pointer-events-none"}`}

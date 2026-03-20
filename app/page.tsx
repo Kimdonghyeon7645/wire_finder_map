@@ -25,6 +25,7 @@ const ITEMS = Array.from({ length: 40 }, (_, i) => ({
 export default function Home() {
   const [checked, setChecked] = useState<Record<string, boolean>>(() => Object.fromEntries(ITEMS.map((item) => [item.id, false])));
   const [roadviewOpen, setRoadviewOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   function toggle(id: string) {
     setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -37,6 +38,22 @@ export default function Home() {
           <span className="px-2 py-1 text-2xl tracking-tighter font-bold">Wire Finder Map</span>
         </SidebarHeader>
         <SidebarContent className="flex-1 flex flex-col min-h-0">
+          <SidebarGroup className="shrink-0">
+            <SidebarGroupLabel>테마</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <div className="px-2 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setDarkMode((prev) => !prev)}
+                  className={`w-full rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                    darkMode ? "bg-gray-900 text-white border-gray-700" : "bg-white text-[#333] hover:bg-gray-100"
+                  }`}
+                >
+                  {darkMode ? "🌙 다크 모드" : "☀️ 라이트 모드"}
+                </button>
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
           <SidebarGroup className="shrink-0">
             <SidebarGroupLabel>거리뷰</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -77,7 +94,7 @@ export default function Home() {
 
       <main className="relative flex-1 min-w-0 h-screen">
         <SidebarTrigger className="absolute top-2 left-2 z-10 bg-white p-4 border-black/10 shadow-xl" />
-        <NaverMap className="w-full h-full" pipOpen={roadviewOpen} onPipClose={() => setRoadviewOpen(false)} onPipOpen={() => setRoadviewOpen(true)} />
+        <NaverMap className="w-full h-full" pipOpen={roadviewOpen} darkMode={darkMode} onPipClose={() => setRoadviewOpen(false)} onPipOpen={() => setRoadviewOpen(true)} />
       </main>
     </SidebarProvider>
   );
