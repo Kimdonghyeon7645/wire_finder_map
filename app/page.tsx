@@ -164,6 +164,9 @@ export default function Home() {
                       <Checkbox id={itemKey} checked={essChecked.has(itemKey)} onCheckedChange={() => toggleEss(itemKey)} />
                       <label htmlFor={itemKey} className="text-[0.85rem] cursor-pointer select-none leading-tight">
                         {loc.label}
+                        {loc.addr && (
+                          <span className="block text-[0.82rem] text-muted-foreground/70 font-normal">{loc.addr}</span>
+                        )}
                       </label>
                     </div>
                   );
