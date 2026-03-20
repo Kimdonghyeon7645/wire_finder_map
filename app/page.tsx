@@ -115,6 +115,8 @@ export default function Home() {
         <SidebarTrigger className="absolute top-2 left-2 z-9 bg-white shadow-md border border-black/10 rounded-md" />
         <NaverMap
           className="w-full h-full"
+          center={{ lat: 35.2, lng: 127 }}
+          zoom={9}
           pipOpen={roadviewOpen}
           darkMode={darkMode}
           geojson={geojson}
