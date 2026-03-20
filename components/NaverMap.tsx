@@ -1,5 +1,6 @@
 "use client";
 
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
 
 interface NaverMapProps {
@@ -8,8 +9,63 @@ interface NaverMapProps {
   className?: string;
   pipOpen?: boolean;
   darkMode?: boolean;
+  geojson?: FeatureCollection | null;
   onPipClose?: () => void;
   onPipOpen?: () => void;
+}
+
+function coordsToLatLng(ring: number[][]): naver.maps.LatLng[] {
+  return ring.map(([lng, lat]) => new naver.maps.LatLng(lat, lng));
+}
+
+function centroid(ring: number[][]): naver.maps.LatLng {
+  const sum = ring.reduce(([ax, ay], [x, y]) => [ax + x, ay + y], [0, 0]);
+  return new naver.maps.LatLng(sum[1] / ring.length, sum[0] / ring.length);
+}
+
+type Overlay = { polygons: naver.maps.Polygon[]; markers: naver.maps.Marker[] };
+
+function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
+  const polygons: naver.maps.Polygon[] = [];
+  const markers: naver.maps.Marker[] = [];
+
+  for (const feature of geojson.features as Feature<Polygon | MultiPolygon>[]) {
+    const { geometry, properties } = feature;
+    if (!geometry) continue;
+
+    const ringGroups: number[][][][] =
+      geometry.type === "Polygon"
+        ? [geometry.coordinates]
+        : geometry.coordinates;
+
+    for (const rings of ringGroups) {
+      const [outer, ...holes] = rings;
+      polygons.push(
+        new naver.maps.Polygon({
+          map,
+          paths: [coordsToLatLng(outer), ...holes.map(coordsToLatLng)],
+          fillColor: "#ef4444",
+          fillOpacity: 0.25,
+          strokeColor: "#ef4444",
+          strokeWeight: 2,
+          strokeOpacity: 0.8,
+        })
+      );
+      markers.push(
+        new naver.maps.Marker({
+          map,
+          position: centroid(outer),
+          title: properties?.name ?? undefined,
+          icon: {
+            content: `<div style="transform:translate(-50%,-100%);display:inline-flex;flex-direction:column;align-items:center;pointer-events:none"><div style="background:#ef4444;color:#fff;padding:3px 8px;border-radius:5px;font-size:11px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35);font-weight:500">${properties?.name ?? ""}</div><div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid #ef4444"></div></div>`,
+            anchor: new naver.maps.Point(0, 0),
+          },
+        })
+      );
+    }
+  }
+
+  return { polygons, markers };
 }
 
 export default function NaverMap({
@@ -18,6 +74,7 @@ export default function NaverMap({
   className = "w-full h-full",
   pipOpen = false,
   darkMode = false,
+  geojson = null,
   onPipClose,
   onPipOpen,
 }: NaverMapProps) {
@@ -27,6 +84,7 @@ export default function NaverMap({
   const panoInstanceRef = useRef<naver.maps.Panorama | null>(null);
   const panoMoveListenerRef = useRef<naver.maps.MapEventListener | null>(null);
   const markerRef = useRef<naver.maps.Marker | null>(null);
+  const overlayRef = useRef<Overlay>({ polygons: [], markers: [] });
   const onPipOpenRef = useRef(onPipOpen);
   useEffect(() => {
     onPipOpenRef.current = onPipOpen;
@@ -93,6 +151,21 @@ export default function NaverMap({
       return () => clearInterval(id);
     }
   }, [center.lat, center.lng, zoom]);
+
+  // GeoJSON 폴리곤 렌더링
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // 기존 오버레이 제거
+    overlayRef.current.polygons.forEach((p) => { p.setMap(null); });
+    overlayRef.current.markers.forEach((m) => { m.setMap(null); });
+    overlayRef.current = { polygons: [], markers: [] };
+
+    if (!geojson) return;
+
+    overlayRef.current = drawGeoJson(map, geojson);
+  }, [geojson]);
 
   function closePip() {
     markerRef.current?.setMap(null);
