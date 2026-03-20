@@ -52,6 +52,7 @@ export default function Home() {
   const [checked, setChecked] = useState<Record<number, boolean>>({});
   const [roadviewOpen, setRoadviewOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [satelliteMode, setSatelliteMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [essChecked, setEssChecked] = useState<Set<string>>(new Set());
 
@@ -248,8 +249,17 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRoadviewOpen((prev) => !prev)}
+                  onClick={() => setSatelliteMode((prev) => !prev)}
                   className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                    satelliteMode ? "bg-green-700 text-white border-green-700" : "bg-white text-[#333] hover:bg-gray-100"
+                  }`}
+                >
+                  위성 모드
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRoadviewOpen((prev) => !prev)}
+                  className={`rounded px-3 py-2 text-sm font-medium border transition-colors col-span-2 ${
                     roadviewOpen ? "bg-blue-600 text-white border-blue-600" : "bg-white text-[#333] hover:bg-gray-100"
                   }`}
                 >
@@ -269,6 +279,7 @@ export default function Home() {
           zoom={8}
           pipOpen={roadviewOpen}
           darkMode={darkMode}
+          satelliteMode={satelliteMode}
           geojson={geojson}
           points={essPoints}
           arrows={essArrows}

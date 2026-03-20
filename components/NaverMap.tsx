@@ -20,6 +20,7 @@ interface NaverMapProps {
   className?: string;
   pipOpen?: boolean;
   darkMode?: boolean;
+  satelliteMode?: boolean;
   geojson?: FeatureCollection | null;
   points?: EssPoint[];
   arrows?: EssArrow[];
@@ -84,6 +85,7 @@ export default function NaverMap({
   className = "w-full h-full",
   pipOpen = false,
   darkMode = false,
+  satelliteMode = false,
   geojson = null,
   points = [],
   arrows = [],
@@ -165,6 +167,13 @@ export default function NaverMap({
       return () => clearInterval(id);
     }
   }, [center.lat, center.lng, zoom]);
+
+  // 위성 모드 전환
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.setMapTypeId(satelliteMode ? naver.maps.MapTypeId.HYBRID : naver.maps.MapTypeId.NORMAL);
+  }, [satelliteMode]);
 
   // GeoJSON 폴리곤 렌더링
   useEffect(() => {
