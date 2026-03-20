@@ -3,6 +3,17 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
 
+export interface EssPoint {
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+export interface EssArrow {
+  from: { lat: number; lon: number };
+  to: { lat: number; lon: number };
+}
+
 interface NaverMapProps {
   center?: { lat: number; lng: number };
   zoom?: number;
@@ -10,6 +21,8 @@ interface NaverMapProps {
   pipOpen?: boolean;
   darkMode?: boolean;
   geojson?: FeatureCollection | null;
+  points?: EssPoint[];
+  arrows?: EssArrow[];
   onPipClose?: () => void;
   onPipOpen?: () => void;
 }
@@ -33,10 +46,7 @@ function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
     const { geometry, properties } = feature;
     if (!geometry) continue;
 
-    const ringGroups: number[][][][] =
-      geometry.type === "Polygon"
-        ? [geometry.coordinates]
-        : geometry.coordinates;
+    const ringGroups: number[][][][] = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
 
     for (const rings of ringGroups) {
       const [outer, ...holes] = rings;
@@ -49,7 +59,7 @@ function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
           strokeColor: "#ef4444",
           strokeWeight: 2,
           strokeOpacity: 0.8,
-        })
+        }),
       );
       markers.push(
         new naver.maps.Marker({
@@ -57,10 +67,10 @@ function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
           position: centroid(outer),
           title: properties?.name ?? undefined,
           icon: {
-            content: `<div style="transform:translate(-50%,-100%);display:inline-flex;flex-direction:column;align-items:center;pointer-events:none"><div style="background:#ef4444;color:#fff;padding:3px 8px;border-radius:5px;font-size:11px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35);font-weight:500">${properties?.name ?? ""}</div><div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid #ef4444"></div></div>`,
+            content: `<div class="substation-marker"><div class="substation-marker__label">${properties?.name ?? ""}</div><div class="substation-marker__tail"></div></div>`,
             anchor: new naver.maps.Point(0, 0),
           },
-        })
+        }),
       );
     }
   }
@@ -75,6 +85,8 @@ export default function NaverMap({
   pipOpen = false,
   darkMode = false,
   geojson = null,
+  points = [],
+  arrows = [],
   onPipClose,
   onPipOpen,
 }: NaverMapProps) {
@@ -85,6 +97,8 @@ export default function NaverMap({
   const panoMoveListenerRef = useRef<naver.maps.MapEventListener | null>(null);
   const markerRef = useRef<naver.maps.Marker | null>(null);
   const overlayRef = useRef<Overlay>({ polygons: [], markers: [] });
+  const essMarkersRef = useRef<naver.maps.Marker[]>([]);
+  const arrowsRef = useRef<naver.maps.Polyline[]>([]);
   const onPipOpenRef = useRef(onPipOpen);
   useEffect(() => {
     onPipOpenRef.current = onPipOpen;
@@ -158,14 +172,59 @@ export default function NaverMap({
     if (!map) return;
 
     // 기존 오버레이 제거
-    overlayRef.current.polygons.forEach((p) => { p.setMap(null); });
-    overlayRef.current.markers.forEach((m) => { m.setMap(null); });
+    overlayRef.current.polygons.forEach((p) => {
+      p.setMap(null);
+    });
+    overlayRef.current.markers.forEach((m) => {
+      m.setMap(null);
+    });
     overlayRef.current = { polygons: [], markers: [] };
 
     if (!geojson) return;
 
     overlayRef.current = drawGeoJson(map, geojson);
   }, [geojson]);
+
+  // ESS 화살표 렌더링
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    arrowsRef.current.forEach((l) => { l.setMap(null); });
+    arrowsRef.current = arrows.map((a) =>
+      new naver.maps.Polyline({
+        map,
+        path: [
+          new naver.maps.LatLng(a.from.lat, a.from.lon),
+          new naver.maps.LatLng(a.to.lat, a.to.lon),
+        ],
+        strokeColor: "#3b82f6",
+        strokeOpacity: 0.5,
+        strokeWeight: 9,
+        endIcon: naver.maps.PointingIcon.BLOCK_ARROW,
+        endIconSize: 20,
+      })
+    );
+  }, [arrows]);
+
+  // ESS 포인트 마커 렌더링
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    essMarkersRef.current.forEach((m) => { m.setMap(null); });
+    const filter = darkMode ? "filter:invert(90%) hue-rotate(180deg);" : "";
+    essMarkersRef.current = points.map((p) =>
+      new naver.maps.Marker({
+        map,
+        position: new naver.maps.LatLng(p.lat, p.lon),
+        icon: {
+          content: `<div style="transform:translate(-50%,-100%);display:inline-flex;flex-direction:column;align-items:center;pointer-events:none;${filter}"><div style="background:#3b82f6;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:500;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3);letter-spacing:-0.6px;">${p.label}</div><div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #3b82f6"></div></div>`,
+          anchor: new naver.maps.Point(0, 0),
+        },
+      })
+    );
+  }, [points, darkMode]);
 
   function closePip() {
     markerRef.current?.setMap(null);
@@ -185,11 +244,7 @@ export default function NaverMap({
         <div className="text-xl">지도를 불러오는 중입니다...</div>
         <div className="text-md">최대 몇초간 로딩이 소요될 수 있습니다.</div>
       </div>
-      <div
-        ref={mapRef}
-        className="w-full h-full"
-        style={darkMode ? { filter: "invert(90%) hue-rotate(180deg)" } : undefined}
-      />
+      <div ref={mapRef} className={`w-full h-full${darkMode ? " dark-map" : ""}`} style={darkMode ? { filter: "invert(90%) hue-rotate(180deg)" } : undefined} />
       {/* 거리뷰 PiP 패널 */}
       <div
         className={`w-160 h-150 absolute bottom-3 right-3 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${pipOpen ? "" : "invisible pointer-events-none"}`}
