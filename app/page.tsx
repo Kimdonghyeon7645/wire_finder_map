@@ -191,15 +191,15 @@ export default function Home() {
         </SidebarHeader>
         <SidebarContent className="flex-1 flex flex-col min-h-0">
           <SidebarGroup>
-            <div className="grid grid-cols-2 gap-2 px-2 pb-2">
+            <div className="grid grid-cols-2 gap-1.25 px-2 pb-2">
               <button
                 type="button"
                 onClick={() => setVworldMode((prev) => !prev)}
-                className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                className={`rounded px-3 py-2 text-sm font-medium border transition-colors col-span-2 ${
                   vworldMode ? "bg-teal-700 text-white border-teal-700" : "bg-white text-[#333] hover:bg-gray-100"
                 }`}
               >
-                연속지적도
+                배전선로 뷰어
               </button>
               <button
                 type="button"
@@ -209,6 +209,33 @@ export default function Home() {
                 }`}
               >
                 거리뷰 팝업
+              </button>
+              <button
+                type="button"
+                onClick={() => setCadastralMode((prev) => !prev)}
+                className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                  cadastralMode ? "bg-amber-700 text-white border-amber-700" : "bg-white text-[#333] hover:bg-gray-100"
+                }`}
+              >
+                지적편집도
+              </button>
+              <button
+                type="button"
+                onClick={() => setSatelliteMode((prev) => !prev)}
+                className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                  satelliteMode ? "bg-green-700 text-white border-green-700" : "bg-white text-[#333] hover:bg-gray-100"
+                }`}
+              >
+                위성 모드
+              </button>
+              <button
+                type="button"
+                onClick={() => setDarkMode((prev) => !prev)}
+                className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                  darkMode ? "bg-gray-900 text-white border-gray-700" : "bg-white text-[#333] hover:bg-gray-100"
+                }`}
+              >
+                {darkMode ? "다크 모드" : "라이트 모드"}
               </button>
             </div>
           </SidebarGroup>
@@ -259,39 +286,7 @@ export default function Home() {
               </SidebarGroupContent>
             </ScrollArea>
           </SidebarGroup>
-          <SidebarGroup className="shrink-0">
-            <SidebarGroupContent>
-              <div className="grid grid-cols-2 gap-2 px-2 pb-2">
-                <button
-                  type="button"
-                  onClick={() => setDarkMode((prev) => !prev)}
-                  className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
-                    darkMode ? "bg-gray-900 text-white border-gray-700" : "bg-white text-[#333] hover:bg-gray-100"
-                  }`}
-                >
-                  {darkMode ? "다크 모드" : "라이트 모드"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSatelliteMode((prev) => !prev)}
-                  className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
-                    satelliteMode ? "bg-green-700 text-white border-green-700" : "bg-white text-[#333] hover:bg-gray-100"
-                  }`}
-                >
-                  위성 모드
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCadastralMode((prev) => !prev)}
-                  className={`rounded px-3 py-2 text-sm font-medium border transition-colors col-span-2 ${
-                    cadastralMode ? "bg-amber-700 text-white border-amber-700" : "bg-white text-[#333] hover:bg-gray-100"
-                  }`}
-                >
-                  지적편집도
-                </button>
-              </div>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <SidebarGroup className="shrink-0"></SidebarGroup>
         </SidebarContent>
       </Sidebar>
 
