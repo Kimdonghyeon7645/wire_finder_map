@@ -1,10 +1,5 @@
 import type { NextConfig } from "next";
 
-const isProd = process.env.NODE_ENV === "production";
-const repoName = "wire_finder_map";
-
-const nextConfig: NextConfig = {
-  basePath: isProd ? `/${repoName}` : "",
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
