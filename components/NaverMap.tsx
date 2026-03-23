@@ -3,6 +3,113 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
 
+const VWORLD_API_KEY = process.env.NEXT_PUBLIC_VWORLD_API_KEY ?? "";
+const CADASTRAL_MIN_ZOOM = 15;
+
+interface VWorldOverlayInstance {
+  setMap(map: naver.maps.Map | null): void;
+}
+
+function createVWorldCadastralOverlay(): VWorldOverlayInstance {
+  function lngLatToMercator(lat: number, lng: number): [number, number] {
+    const x = (lng * 20037508.34) / 180;
+    let y = Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180);
+    y = (y * 20037508.34) / 180;
+    return [x, y];
+  }
+
+  // naver.maps.OverlayView has no exported constructor type — cast required
+  const Base = naver.maps.OverlayView as new () => naver.maps.OverlayView;
+
+  class VWorldOverlay extends Base {
+    private _div: HTMLDivElement | null = null;
+    private _img: HTMLImageElement | null = null;
+    private _listeners: naver.maps.MapEventListener[] = [];
+    private _drawTimer: ReturnType<typeof setTimeout> | null = null;
+    private _wheelHandler: ((e: Event) => void) | null = null;
+
+    private _fade() {
+      if (this._img) this._img.style.opacity = "0.2";
+    }
+
+    private _requestDraw(delay = 0) {
+      if (this._drawTimer) clearTimeout(this._drawTimer);
+      this._drawTimer = setTimeout(() => this.draw(), delay);
+    }
+
+    onAdd() {
+      const div = document.createElement("div");
+      div.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:5;";
+      const img = document.createElement("img");
+      img.style.cssText = "width:100%;height:100%;opacity:0.85;transition:opacity 0.2s;";
+      img.alt = "";
+      // API 응답 완료 시 opacity 복원
+      img.onload = () => { img.style.opacity = "0.85"; };
+      div.appendChild(img);
+      this._div = div;
+      this._img = img;
+
+      const map = this.getMap() as naver.maps.Map;
+      const mapEl = map.getElement();
+      mapEl.appendChild(div);
+
+      // 스크롤 줌: 휠 이벤트로 fade, 멈추면 300ms 후 draw
+      this._wheelHandler = () => { this._fade(); this._requestDraw(300); };
+      mapEl.addEventListener("wheel", this._wheelHandler, { passive: true });
+
+      this._listeners = [
+        // 드래그: 움직이는 동안 fade만, 끝나면 draw
+        naver.maps.Event.addListener(map, "dragstart", () => this._fade()),
+        naver.maps.Event.addListener(map, "dragend", () => this._requestDraw()),
+        // 창 리사이즈 등
+        naver.maps.Event.addListener(map, "size_changed", () => this._requestDraw()),
+      ];
+      this.draw();
+    }
+
+    draw() {
+      if (this._drawTimer) { clearTimeout(this._drawTimer); this._drawTimer = null; }
+      const map = this.getMap() as naver.maps.Map;
+      const img = this._img;
+      if (!map || !img) return;
+
+      if (map.getZoom() < CADASTRAL_MIN_ZOOM) {
+        img.style.display = "none";
+        return;
+      }
+      img.style.display = "";
+
+      const bounds = map.getBounds() as naver.maps.LatLngBounds;
+      const sw = bounds.getSW();
+      const ne = bounds.getNE();
+      const [swX, swY] = lngLatToMercator(sw.lat(), sw.lng());
+      const [neX, neY] = lngLatToMercator(ne.lat(), ne.lng());
+
+      const el = map.getElement();
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+
+      img.src = `https://api.vworld.kr/req/wms?service=WMS&request=GetMap&version=1.3.0&layers=lt_c_landinfobasemap&styles=&crs=EPSG:3857&bbox=${swX},${swY},${neX},${neY}&width=${w}&height=${h}&format=image/png&transparent=true&apikey=${VWORLD_API_KEY}`;
+    }
+
+    onRemove() {
+      if (this._drawTimer) clearTimeout(this._drawTimer);
+      if (this._wheelHandler) {
+        const map = this.getMap() as naver.maps.Map | null;
+        map?.getElement().removeEventListener("wheel", this._wheelHandler);
+        this._wheelHandler = null;
+      }
+      for (const l of this._listeners) naver.maps.Event.removeListener(l);
+      this._listeners = [];
+      this._div?.remove();
+      this._div = null;
+      this._img = null;
+    }
+  }
+
+  return new VWorldOverlay();
+}
+
 export interface EssPoint {
   label: string;
   lat: number;
@@ -22,6 +129,7 @@ interface NaverMapProps {
   darkMode?: boolean;
   satelliteMode?: boolean;
   cadastralMode?: boolean;
+  vworldMode?: boolean;
   geojson?: FeatureCollection | null;
   points?: EssPoint[];
   arrows?: EssArrow[];
@@ -88,6 +196,7 @@ export default function NaverMap({
   darkMode = false,
   satelliteMode = false,
   cadastralMode = false,
+  vworldMode = false,
   geojson = null,
   points = [],
   arrows = [],
@@ -104,6 +213,7 @@ export default function NaverMap({
   const essMarkersRef = useRef<naver.maps.Marker[]>([]);
   const arrowsRef = useRef<naver.maps.Polyline[]>([]);
   const cadastralLayerRef = useRef<naver.maps.CadastralLayer | null>(null);
+  const vworldLayerRef = useRef<VWorldOverlayInstance | null>(null);
   const onPipOpenRef = useRef(onPipOpen);
   useEffect(() => {
     onPipOpenRef.current = onPipOpen;
@@ -178,7 +288,7 @@ export default function NaverMap({
     map.setMapTypeId(satelliteMode ? naver.maps.MapTypeId.HYBRID : naver.maps.MapTypeId.NORMAL);
   }, [satelliteMode]);
 
-  // 지적편집도 레이어 전환
+  // 지적편집도 레이어 전환 (Naver 기본)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -189,6 +299,18 @@ export default function NaverMap({
       cadastralLayerRef.current?.setMap(null);
     }
   }, [cadastralMode]);
+
+  // VWorld 연속지적도 레이어 전환 (줌 15 이상)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (vworldMode) {
+      if (!vworldLayerRef.current) vworldLayerRef.current = createVWorldCadastralOverlay();
+      vworldLayerRef.current.setMap(map);
+    } else {
+      vworldLayerRef.current?.setMap(null);
+    }
+  }, [vworldMode]);
 
   // GeoJSON 폴리곤 렌더링
   useEffect(() => {

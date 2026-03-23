@@ -54,15 +54,14 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [satelliteMode, setSatelliteMode] = useState(false);
   const [cadastralMode, setCadastralMode] = useState(false);
+  const [vworldMode, setVworldMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [essChecked, setEssChecked] = useState<Set<string>>(new Set());
 
   function essItemKeys(essKey: string): string[] {
     const places = ESS_ZONE[essKey];
     return Object.entries(places).flatMap(([placeName, ranks]) =>
-      Object.entries(ranks).flatMap(([rank, locs]) =>
-        locs.map((_, idx) => `${essKey}/${placeName}/${rank}/${idx}`)
-      )
+      Object.entries(ranks).flatMap(([rank, locs]) => locs.map((_, idx) => `${essKey}/${placeName}/${rank}/${idx}`)),
     );
   }
 
@@ -74,13 +73,15 @@ export default function Home() {
     if (essKey) {
       setExpanded((prev) => {
         const s = new Set(prev);
-        if (next) s.add(featureId); else s.delete(featureId);
+        if (next) s.add(featureId);
+        else s.delete(featureId);
         return s;
       });
       setEssChecked((prev) => {
         const s = new Set(prev);
         for (const key of essItemKeys(essKey)) {
-          if (next) s.add(key); else s.delete(key);
+          if (next) s.add(key);
+          else s.delete(key);
         }
         return s;
       });
@@ -95,8 +96,8 @@ export default function Home() {
       setEssChecked(new Set());
     } else {
       setChecked(Object.fromEntries(FEATURES.map((_, i) => [i, true])));
-      setExpanded(new Set(FEATURES.flatMap((_, i) => FEATURE_ESS_KEY[i] ? [`feature-${i}`] : [])));
-      setEssChecked(new Set(FEATURES.flatMap((_, i) => FEATURE_ESS_KEY[i] ? essItemKeys(FEATURE_ESS_KEY[i]) : [])));
+      setExpanded(new Set(FEATURES.flatMap((_, i) => (FEATURE_ESS_KEY[i] ? [`feature-${i}`] : []))));
+      setEssChecked(new Set(FEATURES.flatMap((_, i) => (FEATURE_ESS_KEY[i] ? essItemKeys(FEATURE_ESS_KEY[i]) : []))));
     }
   }
 
@@ -153,7 +154,9 @@ export default function Home() {
       <div className="ml-4 border-l border-border/50 pl-1 pb-1">
         {Object.entries(places).map(([placeName, ranks]) => (
           <div key={placeName} className="mb-2">
-            <div className="px-1.75 pt-0.5 my-px text-[0.85rem] font-semibold text-muted-foreground/90 bg-muted-foreground/10 inline-block rounded-sm">{placeName}</div>
+            <div className="px-1.75 pt-0.5 my-px text-[0.85rem] font-semibold text-muted-foreground/90 bg-muted-foreground/10 inline-block rounded-sm">
+              {placeName}
+            </div>
             {Object.entries(ranks).map(([rank, locations]) => (
               <div key={rank} className="pl-1">
                 {Object.keys(ranks).length > 1 && (
@@ -166,9 +169,7 @@ export default function Home() {
                       <Checkbox id={itemKey} checked={essChecked.has(itemKey)} onCheckedChange={() => toggleEss(itemKey)} />
                       <label htmlFor={itemKey} className="text-[0.85rem] cursor-pointer select-none leading-tight">
                         {loc.label}
-                        {loc.addr && (
-                          <span className="block text-[0.82rem] text-muted-foreground/70 font-normal">{loc.addr}</span>
-                        )}
+                        {loc.addr && <span className="block text-[0.82rem] text-muted-foreground/70 font-normal">{loc.addr}</span>}
                       </label>
                     </div>
                   );
@@ -189,6 +190,28 @@ export default function Home() {
           <SidebarTrigger />
         </SidebarHeader>
         <SidebarContent className="flex-1 flex flex-col min-h-0">
+          <SidebarGroup>
+            <div className="grid grid-cols-2 gap-2 px-2 pb-2">
+              <button
+                type="button"
+                onClick={() => setVworldMode((prev) => !prev)}
+                className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                  vworldMode ? "bg-teal-700 text-white border-teal-700" : "bg-white text-[#333] hover:bg-gray-100"
+                }`}
+              >
+                연속지적도
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoadviewOpen((prev) => !prev)}
+                className={`rounded px-3 py-2 text-sm font-medium border transition-colors ${
+                  roadviewOpen ? "bg-y-600 bg-sky-700 text-white border-sky-700" : "bg-white text-[#333] hover:bg-gray-100"
+                }`}
+              >
+                거리뷰 팝업
+              </button>
+            </div>
+          </SidebarGroup>
           <SidebarGroup className="flex-1 flex flex-col min-h-0">
             <SidebarGroupLabel className="shrink-0 flex items-center gap-2 pr-2 pb-1 border-b border-[#00000016]">
               <Checkbox id="toggle-all" checked={allChecked} onCheckedChange={toggleAll} />
@@ -266,15 +289,6 @@ export default function Home() {
                 >
                   지적편집도
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setRoadviewOpen((prev) => !prev)}
-                  className={`rounded px-3 py-2 text-sm font-medium border transition-colors col-span-2 ${
-                    roadviewOpen ? "bg-blue-600 text-white border-blue-600" : "bg-white text-[#333] hover:bg-gray-100"
-                  }`}
-                >
-                  거리뷰 팝업
-                </button>
               </div>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -291,6 +305,7 @@ export default function Home() {
           darkMode={darkMode}
           satelliteMode={satelliteMode}
           cadastralMode={cadastralMode}
+          vworldMode={vworldMode}
           geojson={geojson}
           points={essPoints}
           arrows={essArrows}
