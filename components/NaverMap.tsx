@@ -160,9 +160,14 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
         if (!key) continue;
         const displayJibun = info?.jibun ?? jibun;
         const jibunLabel = `${displayJibun}${jimok}`;
+        // 색상은 CSS 클래스 의존 없이 인라인으로 지정 (HMR CSS 지연 문제 방지)
+        const [bg, fg, subFg] = dlNms
+          ? [color, "#fff", "rgba(255,255,255,0.85)"]
+          : ["rgba(156,163,175,0.75)", "#374151", "#374151"];
+        const subStyle = `font-size:9px;font-weight:400;color:${subFg};`;
         const content = dlNms
-          ? `<div class="cadastral-label" style="background:${color}">${dlNms}<br><span class="cadastral-label__sub">${jibunLabel}</span></div>`
-          : `<div class="cadastral-label cadastral-label--gray">${jibunLabel}</div>`;
+          ? `<div class="cadastral-label" style="background:${bg};color:${fg}">${dlNms}<br><span style="${subStyle}">${jibunLabel}</span></div>`
+          : `<div class="cadastral-label" style="background:${bg};color:${fg}">${jibunLabel}</div>`;
 
         this._markers.push(
           new naver.maps.Marker({

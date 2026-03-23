@@ -149,10 +149,9 @@
   filter: invert(90%) hue-rotate(180deg);
 }
 
-/* 연속지적도 필지 라벨 */
+/* 연속지적도 필지 라벨 - 색상은 인라인 스타일로 처리 */
 .cadastral-label {
   transform: translate(-50%, -50%);
-  color: #fff;
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 10px;
@@ -162,18 +161,6 @@
   text-align: center;
   line-height: 1.4;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.cadastral-label--gray {
-  background: rgba(156, 163, 175, 0.75);
-  color: #374151;
-  font-weight: 500;
-}
-
-.cadastral-label__sub {
-  font-size: 9px;
-  font-weight: 400;
-  opacity: 0.9;
 }
 
 .dark-map .cadastral-label {
