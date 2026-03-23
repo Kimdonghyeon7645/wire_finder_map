@@ -18,6 +18,8 @@ interface VWorldOverlayInstance {
 
 // VWorld Data API 프록시(/api/vworld)를 통해 지번 폴리곤 GeoJSON을 받아
 // naver.maps.Polygon으로 직접 렌더링하는 레이어
+type ParcelInfo = { ri: string; jibun: string; dl_nms?: string };
+
 class VWorldCadastralLayer implements VWorldOverlayInstance {
   private _map: naver.maps.Map | null = null;
   private _polygons: naver.maps.Polygon[] = [];
@@ -25,6 +27,7 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
   private _listeners: naver.maps.MapEventListener[] = [];
   private _drawTimer: ReturnType<typeof setTimeout> | null = null;
   private _abortController: AbortController | null = null;
+  private _parcelCache = new Map<string, ParcelInfo>();
 
   setMap(map: naver.maps.Map | null) {
     if (this._map) this._detach();
@@ -123,24 +126,27 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
         }
       }
 
-      // 2단계: 필지 정보 일괄 조회 (50개씩 분할)
+      // 2단계: 캐시 미스 key만 API 조회 후 캐시 저장
       const uniqueKeys = [...new Set(rawItems.filter((i) => i.key).map((i) => i.key))];
-      const BATCH = 50;
-      const chunks: string[][] = [];
-      for (let i = 0; i < uniqueKeys.length; i += BATCH) chunks.push(uniqueKeys.slice(i, i + BATCH));
-      const batches = chunks.length > 0
-        ? await Promise.all(
-            chunks.map((c) =>
-              fetch(`/api/parcel?keys=${encodeURIComponent(c.join(","))}`, { signal }).then((r) => r.json()),
-            ),
-          )
-        : [];
-      const parcelData: Record<string, { ri: string; jibun: string; dl_nms?: string }> =
-        Object.assign({}, ...batches);
+      const uncachedKeys = uniqueKeys.filter((k) => !this._parcelCache.has(k));
+      if (uncachedKeys.length > 0) {
+        const BATCH = 50;
+        const chunks: string[][] = [];
+        for (let i = 0; i < uncachedKeys.length; i += BATCH) chunks.push(uncachedKeys.slice(i, i + BATCH));
+        const batches = await Promise.all(
+          chunks.map((c) =>
+            fetch(`/api/parcel?keys=${encodeURIComponent(c.join(","))}`, { signal }).then((r) => r.json()),
+          ),
+        );
+        const fetched: Record<string, ParcelInfo> = Object.assign({}, ...batches);
+        for (const [k, v] of Object.entries(fetched)) this._parcelCache.set(k, v);
+        // 조회됐지만 DB에 없는 key도 캐시 (빈 값으로) → 재요청 방지
+        for (const k of uncachedKeys) if (!this._parcelCache.has(k)) this._parcelCache.set(k, { ri: "", jibun: "", dl_nms: "" });
+      }
 
       // 3단계: parcel 정보 기반으로 폴리곤·라벨 색상 결정 후 렌더링
       for (const { paths, key, jibun, jimok, pos } of rawItems) {
-        const info = key ? parcelData[key] : undefined;
+        const info = key ? this._parcelCache.get(key) : undefined;
         const dlNms = info?.dl_nms || "";
         const color = dlNms ? dlNmsColor(dlNms) : "#9ca3af";
         const fillOpacity = dlNms ? 0.3 : 0.12;
@@ -157,17 +163,11 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
           }),
         );
 
-        if (!key) continue;
+        if (!key || !dlNms) continue; // dl_nms 없으면 라벨 생략
         const displayJibun = info?.jibun ?? jibun;
         const jibunLabel = `${displayJibun}${jimok}`;
-        // 색상은 CSS 클래스 의존 없이 인라인으로 지정 (HMR CSS 지연 문제 방지)
-        const [bg, fg, subFg] = dlNms
-          ? [color, "#fff", "rgba(255,255,255,0.85)"]
-          : ["rgba(156,163,175,0.75)", "#374151", "#374151"];
-        const subStyle = `font-size:9px;font-weight:400;color:${subFg};`;
-        const content = dlNms
-          ? `<div class="cadastral-label" style="background:${bg};color:${fg}">${dlNms}<br><span style="${subStyle}">${jibunLabel}</span></div>`
-          : `<div class="cadastral-label" style="background:${bg};color:${fg}">${jibunLabel}</div>`;
+        const subStyle = `font-size:9px;font-weight:400;color:rgba(255,255,255,0.85);`;
+        const content = `<div class="cadastral-label" style="background:${color};color:#fff">${dlNms}<br><span style="${subStyle}">${jibunLabel}</span></div>`;
 
         this._markers.push(
           new naver.maps.Marker({
