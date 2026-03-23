@@ -5,6 +5,13 @@ import { useEffect, useRef, useState } from "react";
 
 const CADASTRAL_MIN_ZOOM = 18;
 
+// dl_nms 문자열에서 결정론적 HSL 색상 생성
+function dlNmsColor(str: string): string {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) & 0x7fffffff;
+  return `hsl(${h % 360}, 65%, 42%)`;
+}
+
 interface VWorldOverlayInstance {
   setMap(map: naver.maps.Map | null): void;
 }
@@ -14,6 +21,7 @@ interface VWorldOverlayInstance {
 class VWorldCadastralLayer implements VWorldOverlayInstance {
   private _map: naver.maps.Map | null = null;
   private _polygons: naver.maps.Polygon[] = [];
+  private _markers: naver.maps.Marker[] = [];
   private _listeners: naver.maps.MapEventListener[] = [];
   private _drawTimer: ReturnType<typeof setTimeout> | null = null;
   private _abortController: AbortController | null = null;
@@ -38,7 +46,7 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
   private _detach() {
     if (this._drawTimer) clearTimeout(this._drawTimer);
     this._abortController?.abort();
-    this._clearPolygons();
+    this._clearOverlays();
     for (const l of this._listeners) naver.maps.Event.removeListener(l);
     this._listeners = [];
     this._map = null;
@@ -52,12 +60,13 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
   private async _fetchAndDraw() {
     const map = this._map;
     if (!map || map.getZoom() < CADASTRAL_MIN_ZOOM) {
-      this._clearPolygons();
+      this._clearOverlays();
       return;
     }
 
     this._abortController?.abort();
     this._abortController = new AbortController();
+    const signal = this._abortController.signal;
 
     const bounds = map.getBounds() as naver.maps.LatLngBounds;
     const sw = bounds.getSW();
@@ -65,14 +74,24 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
     const bbox = `${sw.lng()},${sw.lat()},${ne.lng()},${ne.lat()}`;
 
     try {
-      const res = await fetch(`/api/vworld?bbox=${encodeURIComponent(bbox)}&size=1000`, {
-        signal: this._abortController.signal,
-      });
+      const res = await fetch(`/api/vworld?bbox=${encodeURIComponent(bbox)}&size=1000`, { signal });
       const data = await res.json();
-      const features: { geometry: { type: string; coordinates: number[][][][] | number[][][] } }[] =
-        data?.response?.result?.featureCollection?.features ?? [];
+      const features: {
+        geometry: { type: string; coordinates: number[][][][] | number[][][] };
+        properties: Record<string, unknown>;
+      }[] = data?.response?.result?.featureCollection?.features ?? [];
 
-      this._clearPolygons();
+      this._clearOverlays();
+
+      // 1단계: 폴리곤 경로·키 수집 (아직 그리지 않음)
+      type RawItem = {
+        paths: naver.maps.LatLng[][];
+        key: string;
+        jibun: string;
+        jimok: string;
+        pos: naver.maps.LatLng;
+      };
+      const rawItems: RawItem[] = [];
 
       for (const feature of features) {
         const { type, coordinates } = feature.geometry;
@@ -80,32 +99,89 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
           ? [coordinates as number[][][]]
           : (coordinates as number[][][][]);
 
+        const props = feature.properties ?? {};
+        const sido = String(props.sido_nm ?? "");
+        const sgg = String(props.sgg_nm ?? "");
+        const emd = String(props.emd_nm ?? "");
+        const ri = String(props.ri_nm ?? "");
+        const jibunRaw = String(props.jibun ?? "");
+        const jibun = jibunRaw.replace(/[가-힣]+$/, "");
+        const jimok = String(props.jimok ?? "");
+        const key = sido && sgg && emd && jibun
+          ? `${sido}_${sgg}_${emd}_${ri}_${jibun}`
+          : "";
+
         for (const ring of rings) {
           const [outer, ...holes] = ring;
-          this._polygons.push(
-            new naver.maps.Polygon({
-              map,
-              paths: [
-                outer.map(([lng, lat]) => new naver.maps.LatLng(lat, lng)),
-                ...holes.map((h) => h.map(([lng, lat]) => new naver.maps.LatLng(lat, lng))),
-              ],
-              fillColor: "#3b82f6",
-              fillOpacity: 0.25,
-              strokeColor: "#3b82f6",
-              strokeWeight: 1,
-              strokeOpacity: 0.7,
-            }),
-          );
+          const paths = [
+            outer.map(([lng, lat]) => new naver.maps.LatLng(lat, lng)),
+            ...holes.map((h) => h.map(([lng, lat]) => new naver.maps.LatLng(lat, lng))),
+          ];
+          const sum = outer.reduce(([ax, ay], [x, y]) => [ax + x, ay + y], [0, 0]);
+          const pos = new naver.maps.LatLng(sum[1] / outer.length, sum[0] / outer.length);
+          rawItems.push({ paths, key, jibun, jimok, pos });
         }
+      }
+
+      // 2단계: 필지 정보 일괄 조회 (50개씩 분할)
+      const uniqueKeys = [...new Set(rawItems.filter((i) => i.key).map((i) => i.key))];
+      const BATCH = 50;
+      const chunks: string[][] = [];
+      for (let i = 0; i < uniqueKeys.length; i += BATCH) chunks.push(uniqueKeys.slice(i, i + BATCH));
+      const batches = chunks.length > 0
+        ? await Promise.all(
+            chunks.map((c) =>
+              fetch(`/api/parcel?keys=${encodeURIComponent(c.join(","))}`, { signal }).then((r) => r.json()),
+            ),
+          )
+        : [];
+      const parcelData: Record<string, { ri: string; jibun: string; dl_nms?: string }> =
+        Object.assign({}, ...batches);
+
+      // 3단계: parcel 정보 기반으로 폴리곤·라벨 색상 결정 후 렌더링
+      for (const { paths, key, jibun, jimok, pos } of rawItems) {
+        const info = key ? parcelData[key] : undefined;
+        const dlNms = info?.dl_nms || "";
+        const color = dlNms ? dlNmsColor(dlNms) : "#9ca3af";
+        const fillOpacity = dlNms ? 0.3 : 0.12;
+
+        this._polygons.push(
+          new naver.maps.Polygon({
+            map,
+            paths,
+            fillColor: color,
+            fillOpacity,
+            strokeColor: color,
+            strokeWeight: 1,
+            strokeOpacity: dlNms ? 0.8 : 0.4,
+          }),
+        );
+
+        if (!key) continue;
+        const displayJibun = info?.jibun ?? jibun;
+        const jibunLabel = `${displayJibun}${jimok}`;
+        const content = dlNms
+          ? `<div class="cadastral-label" style="background:${color}">${dlNms}<br><span class="cadastral-label__sub">${jibunLabel}</span></div>`
+          : `<div class="cadastral-label cadastral-label--gray">${jibunLabel}</div>`;
+
+        this._markers.push(
+          new naver.maps.Marker({
+            map,
+            position: pos,
+            icon: { content, anchor: new naver.maps.Point(0, 0) },
+          }),
+        );
       }
     } catch (e) {
       if ((e as Error).name !== "AbortError") console.error("[VWorld]", e);
     }
   }
 
-  private _clearPolygons() {
+  private _clearOverlays() {
     for (const p of this._polygons) p.setMap(null);
     this._polygons = [];
+    for (const m of this._markers) m.setMap(null);
+    this._markers = [];
   }
 }
 
