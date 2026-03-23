@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import db from "@/lib/db";
+import { getDb } from "@/lib/db";
 
 // GET /api/parcel?keys=전라남도_신안군_지도읍_자동리_1692-1,전라남도_신안군_지도읍_자동리_1692-3,...
 // keys: {sido}_{sgg}_{emd}_{ri}_{jibun} 형식, 콤마 구분 (N개 배치)
@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   }
 
   const result: Record<string, unknown> = {};
+  const db = getDb();
   const stmt = (jibuns: string[]) =>
     db.prepare(
       `SELECT ri, jibun, dl_nms
