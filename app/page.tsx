@@ -53,6 +53,7 @@ export default function Home() {
   const [roadviewOpen, setRoadviewOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [satelliteMode, setSatelliteMode] = useState(false);
+  const [cadastralMode, setCadastralMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [essChecked, setEssChecked] = useState<Set<string>>(new Set());
 
@@ -258,6 +259,15 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setCadastralMode((prev) => !prev)}
+                  className={`rounded px-3 py-2 text-sm font-medium border transition-colors col-span-2 ${
+                    cadastralMode ? "bg-amber-700 text-white border-amber-700" : "bg-white text-[#333] hover:bg-gray-100"
+                  }`}
+                >
+                  지적편집도
+                </button>
+                <button
+                  type="button"
                   onClick={() => setRoadviewOpen((prev) => !prev)}
                   className={`rounded px-3 py-2 text-sm font-medium border transition-colors col-span-2 ${
                     roadviewOpen ? "bg-blue-600 text-white border-blue-600" : "bg-white text-[#333] hover:bg-gray-100"
@@ -280,6 +290,7 @@ export default function Home() {
           pipOpen={roadviewOpen}
           darkMode={darkMode}
           satelliteMode={satelliteMode}
+          cadastralMode={cadastralMode}
           geojson={geojson}
           points={essPoints}
           arrows={essArrows}

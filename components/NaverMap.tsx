@@ -21,6 +21,7 @@ interface NaverMapProps {
   pipOpen?: boolean;
   darkMode?: boolean;
   satelliteMode?: boolean;
+  cadastralMode?: boolean;
   geojson?: FeatureCollection | null;
   points?: EssPoint[];
   arrows?: EssArrow[];
@@ -86,6 +87,7 @@ export default function NaverMap({
   pipOpen = false,
   darkMode = false,
   satelliteMode = false,
+  cadastralMode = false,
   geojson = null,
   points = [],
   arrows = [],
@@ -101,6 +103,7 @@ export default function NaverMap({
   const overlayRef = useRef<Overlay>({ polygons: [], markers: [] });
   const essMarkersRef = useRef<naver.maps.Marker[]>([]);
   const arrowsRef = useRef<naver.maps.Polyline[]>([]);
+  const cadastralLayerRef = useRef<naver.maps.CadastralLayer | null>(null);
   const onPipOpenRef = useRef(onPipOpen);
   useEffect(() => {
     onPipOpenRef.current = onPipOpen;
@@ -174,6 +177,18 @@ export default function NaverMap({
     if (!map) return;
     map.setMapTypeId(satelliteMode ? naver.maps.MapTypeId.HYBRID : naver.maps.MapTypeId.NORMAL);
   }, [satelliteMode]);
+
+  // 지적편집도 레이어 전환
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (cadastralMode) {
+      if (!cadastralLayerRef.current) cadastralLayerRef.current = new naver.maps.CadastralLayer();
+      cadastralLayerRef.current.setMap(map);
+    } else {
+      cadastralLayerRef.current?.setMap(null);
+    }
+  }, [cadastralMode]);
 
   // GeoJSON 폴리곤 렌더링
   useEffect(() => {
