@@ -3,111 +3,114 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
 
-const VWORLD_API_KEY = process.env.NEXT_PUBLIC_VWORLD_API_KEY ?? "";
-const CADASTRAL_MIN_ZOOM = 15;
+const CADASTRAL_MIN_ZOOM = 18;
 
 interface VWorldOverlayInstance {
   setMap(map: naver.maps.Map | null): void;
 }
 
+// VWorld Data API 프록시(/api/vworld)를 통해 지번 폴리곤 GeoJSON을 받아
+// naver.maps.Polygon으로 직접 렌더링하는 레이어
+class VWorldCadastralLayer implements VWorldOverlayInstance {
+  private _map: naver.maps.Map | null = null;
+  private _polygons: naver.maps.Polygon[] = [];
+  private _listeners: naver.maps.MapEventListener[] = [];
+  private _drawTimer: ReturnType<typeof setTimeout> | null = null;
+  private _abortController: AbortController | null = null;
+
+  setMap(map: naver.maps.Map | null) {
+    if (this._map) this._detach();
+    this._map = map;
+    if (map) this._attach();
+  }
+
+  private _attach() {
+    const map = this._map;
+    if (!map) return;
+    this._listeners = [
+      naver.maps.Event.addListener(map, "dragend", () => this._request()),
+      naver.maps.Event.addListener(map, "zoom_changed", () => this._request(300)),
+      naver.maps.Event.addListener(map, "size_changed", () => this._request()),
+    ];
+    this._request();
+  }
+
+  private _detach() {
+    if (this._drawTimer) clearTimeout(this._drawTimer);
+    this._abortController?.abort();
+    this._clearPolygons();
+    for (const l of this._listeners) naver.maps.Event.removeListener(l);
+    this._listeners = [];
+    this._map = null;
+  }
+
+  private _request(delay = 0) {
+    if (this._drawTimer) clearTimeout(this._drawTimer);
+    this._drawTimer = setTimeout(() => this._fetchAndDraw(), delay);
+  }
+
+  private async _fetchAndDraw() {
+    const map = this._map;
+    if (!map || map.getZoom() < CADASTRAL_MIN_ZOOM) {
+      this._clearPolygons();
+      return;
+    }
+
+    this._abortController?.abort();
+    this._abortController = new AbortController();
+
+    const bounds = map.getBounds() as naver.maps.LatLngBounds;
+    const sw = bounds.getSW();
+    const ne = bounds.getNE();
+    const bbox = `${sw.lng()},${sw.lat()},${ne.lng()},${ne.lat()}`;
+
+    try {
+      const res = await fetch(`/api/vworld?bbox=${encodeURIComponent(bbox)}&size=1000`, {
+        signal: this._abortController.signal,
+      });
+      const data = await res.json();
+      const features: { geometry: { type: string; coordinates: number[][][][] | number[][][] } }[] =
+        data?.response?.result?.featureCollection?.features ?? [];
+
+      this._clearPolygons();
+
+      for (const feature of features) {
+        const { type, coordinates } = feature.geometry;
+        const rings: number[][][][] = type === "Polygon"
+          ? [coordinates as number[][][]]
+          : (coordinates as number[][][][]);
+
+        for (const ring of rings) {
+          const [outer, ...holes] = ring;
+          this._polygons.push(
+            new naver.maps.Polygon({
+              map,
+              paths: [
+                outer.map(([lng, lat]) => new naver.maps.LatLng(lat, lng)),
+                ...holes.map((h) => h.map(([lng, lat]) => new naver.maps.LatLng(lat, lng))),
+              ],
+              fillColor: "#3b82f6",
+              fillOpacity: 0.25,
+              strokeColor: "#3b82f6",
+              strokeWeight: 1,
+              strokeOpacity: 0.7,
+            }),
+          );
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") console.error("[VWorld]", e);
+    }
+  }
+
+  private _clearPolygons() {
+    for (const p of this._polygons) p.setMap(null);
+    this._polygons = [];
+  }
+}
+
 function createVWorldCadastralOverlay(): VWorldOverlayInstance {
-  function lngLatToMercator(lat: number, lng: number): [number, number] {
-    const x = (lng * 20037508.34) / 180;
-    let y = Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180);
-    y = (y * 20037508.34) / 180;
-    return [x, y];
-  }
-
-  // naver.maps.OverlayView has no exported constructor type — cast required
-  const Base = naver.maps.OverlayView as new () => naver.maps.OverlayView;
-
-  class VWorldOverlay extends Base {
-    private _div: HTMLDivElement | null = null;
-    private _img: HTMLImageElement | null = null;
-    private _listeners: naver.maps.MapEventListener[] = [];
-    private _drawTimer: ReturnType<typeof setTimeout> | null = null;
-    private _wheelHandler: ((e: Event) => void) | null = null;
-
-    private _fade() {
-      if (this._img) this._img.style.opacity = "0.2";
-    }
-
-    private _requestDraw(delay = 0) {
-      if (this._drawTimer) clearTimeout(this._drawTimer);
-      this._drawTimer = setTimeout(() => this.draw(), delay);
-    }
-
-    onAdd() {
-      const div = document.createElement("div");
-      div.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:5;";
-      const img = document.createElement("img");
-      img.style.cssText = "width:100%;height:100%;opacity:0.85;transition:opacity 0.2s;";
-      img.alt = "";
-      // API 응답 완료 시 opacity 복원
-      img.onload = () => { img.style.opacity = "0.85"; };
-      div.appendChild(img);
-      this._div = div;
-      this._img = img;
-
-      const map = this.getMap() as naver.maps.Map;
-      const mapEl = map.getElement();
-      mapEl.appendChild(div);
-
-      // 스크롤 줌: 휠 이벤트로 fade, 멈추면 300ms 후 draw
-      this._wheelHandler = () => { this._fade(); this._requestDraw(300); };
-      mapEl.addEventListener("wheel", this._wheelHandler, { passive: true });
-
-      this._listeners = [
-        // 드래그: 움직이는 동안 fade만, 끝나면 draw
-        naver.maps.Event.addListener(map, "dragstart", () => this._fade()),
-        naver.maps.Event.addListener(map, "dragend", () => this._requestDraw()),
-        // 창 리사이즈 등
-        naver.maps.Event.addListener(map, "size_changed", () => this._requestDraw()),
-      ];
-      this.draw();
-    }
-
-    draw() {
-      if (this._drawTimer) { clearTimeout(this._drawTimer); this._drawTimer = null; }
-      const map = this.getMap() as naver.maps.Map;
-      const img = this._img;
-      if (!map || !img) return;
-
-      if (map.getZoom() < CADASTRAL_MIN_ZOOM) {
-        img.style.display = "none";
-        return;
-      }
-      img.style.display = "";
-
-      const bounds = map.getBounds() as naver.maps.LatLngBounds;
-      const sw = bounds.getSW();
-      const ne = bounds.getNE();
-      const [swX, swY] = lngLatToMercator(sw.lat(), sw.lng());
-      const [neX, neY] = lngLatToMercator(ne.lat(), ne.lng());
-
-      const el = map.getElement();
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-
-      img.src = `https://api.vworld.kr/req/wms?service=WMS&request=GetMap&version=1.3.0&layers=lt_c_landinfobasemap&styles=&crs=EPSG:3857&bbox=${swX},${swY},${neX},${neY}&width=${w}&height=${h}&format=image/png&transparent=true&apikey=${VWORLD_API_KEY}`;
-    }
-
-    onRemove() {
-      if (this._drawTimer) clearTimeout(this._drawTimer);
-      if (this._wheelHandler) {
-        const map = this.getMap() as naver.maps.Map | null;
-        map?.getElement().removeEventListener("wheel", this._wheelHandler);
-        this._wheelHandler = null;
-      }
-      for (const l of this._listeners) naver.maps.Event.removeListener(l);
-      this._listeners = [];
-      this._div?.remove();
-      this._div = null;
-      this._img = null;
-    }
-  }
-
-  return new VWorldOverlay();
+  return new VWorldCadastralLayer();
 }
 
 export interface EssPoint {
@@ -220,6 +223,7 @@ export default function NaverMap({
   });
 
   const [hasPano, setHasPano] = useState(false);
+  const [mapZoom, setMapZoom] = useState(zoom);
 
   useEffect(() => {
     function initMap() {
@@ -235,6 +239,7 @@ export default function NaverMap({
         },
       });
       mapInstanceRef.current = map;
+      naver.maps.Event.addListener(map, "zoom_changed", () => setMapZoom(map.getZoom()));
 
       const streetLayer = new naver.maps.StreetLayer();
       streetLayer.setMap(map);
@@ -391,6 +396,11 @@ export default function NaverMap({
         <div className="text-md">최대 몇초간 로딩이 소요될 수 있습니다.</div>
       </div>
       <div ref={mapRef} className={`w-full h-full${darkMode ? " dark-map" : ""}`} style={darkMode ? { filter: "invert(90%) hue-rotate(180deg)" } : undefined} />
+      {vworldMode && mapZoom < CADASTRAL_MIN_ZOOM && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-full bg-black/70 text-white text-sm whitespace-nowrap pointer-events-none">
+          현재 줌레벨에서는 지적도 조회를 지원하지 않습니다
+        </div>
+      )}
       {/* 거리뷰 PiP 패널 */}
       <div
         className={`w-160 h-150 absolute bottom-3 right-3 z-20 rounded-xl overflow-hidden shadow-xl bg-white border ${pipOpen ? "" : "invisible pointer-events-none"}`}
