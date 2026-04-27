@@ -6,6 +6,8 @@
 import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson";
 import Supercluster from "supercluster";
 import { useEffect, useMemo, useRef, useState } from "react";
+import jeonnamGeoJson from "@/constants/전남시군구.json";
+import jeonbukGeoJson from "@/constants/전북시군구.json";
 
 const CADASTRAL_MIN_ZOOM = 18;
 
@@ -404,6 +406,7 @@ export default function NaverMap({
   const cadastralLayerRef = useRef<naver.maps.CadastralLayer | null>(null);
   const vworldLayerRef = useRef<VWorldOverlayInstance | null>(null);
   const searchMarkerRef = useRef<naver.maps.Marker | null>(null);
+  const boundaryPolygonsRef = useRef<naver.maps.Polygon[]>([]);
   const onPipOpenRef = useRef(onPipOpen);
   useEffect(() => {
     onPipOpenRef.current = onPipOpen;
@@ -536,6 +539,56 @@ export default function NaverMap({
       return () => clearInterval(id);
     }
   }, [center.lat, center.lng, zoom]);
+
+  // 전남·전북 시군구 경계 레이어 생성 (최하단 고정, 최초 1회)
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const polygons: naver.maps.Polygon[] = [];
+    for (const geojson of [jeonnamGeoJson, jeonbukGeoJson]) {
+      for (const feature of geojson.features as Feature<Polygon | MultiPolygon>[]) {
+        const { geometry } = feature;
+        if (!geometry) continue;
+        const ringGroups: number[][][][] =
+          geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+        for (const rings of ringGroups) {
+          const [outer, ...holes] = rings;
+          polygons.push(
+            new naver.maps.Polygon({
+              map: undefined,
+              paths: [
+                outer.map(([lng, lat]) => new naver.maps.LatLng(lat, lng)),
+                ...holes.map((h) => h.map(([lng, lat]) => new naver.maps.LatLng(lat, lng))),
+              ],
+              fillColor: "#6b8cba",
+              fillOpacity: 0.25,
+              strokeColor: "#4a6fa5",
+              strokeOpacity: 0.9,
+              strokeWeight: 2,
+              zIndex: -10,
+            }),
+          );
+        }
+      }
+    }
+    boundaryPolygonsRef.current = polygons;
+
+    return () => {
+      for (const p of polygons) p.setMap(null);
+      boundaryPolygonsRef.current = [];
+    };
+  }, [mapReady]);
+
+  // 줌 레벨 11 이하일 때만 시군구 경계 표시
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const show = mapZoom <= 11;
+    for (const p of boundaryPolygonsRef.current) {
+      p.setMap(show ? map : null);
+    }
+  }, [mapZoom]);
 
   // 발전소 포인트 클러스터 렌더링
   useEffect(() => {
