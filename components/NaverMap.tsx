@@ -230,6 +230,15 @@ function centroid(ring: number[][]): naver.maps.LatLng {
   return new naver.maps.LatLng(sum[1] / ring.length, sum[0] / ring.length);
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 type Overlay = { polygons: naver.maps.Polygon[]; markers: naver.maps.Marker[] };
 
 function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
@@ -261,7 +270,7 @@ function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
           position: centroid(outer),
           title: properties?.name ?? undefined,
           icon: {
-            content: `<div class="substation-marker"><div class="substation-marker__label">${properties?.name ?? ""}</div><div class="substation-marker__tail"></div></div>`,
+            content: `<div class="map-pin map-pin--substation"><div class="map-pin__label"><span class="map-pin__symbol">●</span><span class="map-pin__text">${escapeHtml(properties?.name)}</span></div><div class="map-pin__stem"></div><div class="map-pin__point"></div></div>`,
             anchor: new naver.maps.Point(0, 0),
           },
         }),
@@ -445,13 +454,12 @@ export default function NaverMap({
     if (!map) return;
 
     essMarkersRef.current.forEach((m) => { m.setMap(null); });
-    const filter = darkMode ? "filter:invert(90%) hue-rotate(180deg);" : "";
     essMarkersRef.current = points.map((p) =>
       new naver.maps.Marker({
         map,
         position: new naver.maps.LatLng(p.lat, p.lon),
         icon: {
-          content: `<div style="transform:translate(-50%,-100%);display:inline-flex;flex-direction:column;align-items:center;pointer-events:none;${filter}"><div style="background:#3b82f6;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:500;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3);letter-spacing:-0.6px;">${p.label}</div><div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #3b82f6"></div></div>`,
+          content: `<div class="map-pin map-pin--line"><div class="map-pin__label"><span class="map-pin__symbol">•</span><span class="map-pin__text">${escapeHtml(p.label)}</span></div><div class="map-pin__stem"></div><div class="map-pin__point"></div></div>`,
           anchor: new naver.maps.Point(0, 0),
         },
       })
