@@ -3,7 +3,7 @@
 import type { Feature, FeatureCollection, MultiPolygon } from "geojson";
 import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { EssArrow, EssPoint } from "@/components/NaverMap";
+import type { EssArrow, EssPoint, PowerPlantPoint } from "@/components/NaverMap";
 import NaverMap from "@/components/NaverMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import rawFeatures from "@/constants/byeon-jeon.json";
 import rawEssZone from "@/constants/ess_zone.json";
+import rawPowerPlantPoints from "@/constants/power-plant-points.json";
 
 const FEATURES = rawFeatures as Feature<MultiPolygon>[];
 
@@ -32,6 +33,7 @@ interface EssLocation {
 }
 type EssZoneData = Record<string, Record<string, Record<string, EssLocation[]>>>;
 const ESS_ZONE = rawEssZone as EssZoneData;
+const POWER_PLANT_POINTS = rawPowerPlantPoints as PowerPlantPoint[];
 
 const FEATURE_ESS_KEY = FEATURES.map((f) => {
   const name = f.properties?.name ?? "";
@@ -57,6 +59,8 @@ export default function Home() {
   const [vworldMode, setVworldMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [essChecked, setEssChecked] = useState<Set<string>>(new Set());
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState<string | undefined>(undefined);
 
   function essItemKeys(essKey: string): string[] {
     const places = ESS_ZONE[essKey];
@@ -185,9 +189,32 @@ export default function Home() {
   return (
     <SidebarProvider>
       <Sidebar className="h-full flex flex-col">
-        <SidebarHeader className="flex flex-row items-center justify-between pl-5 pr-3">
-          <span className="mt-1 text-2xl tracking-tighter font-bold">Wire Finder Map</span>
-          <SidebarTrigger />
+        <SidebarHeader className="flex flex-col gap-2 pl-5 pr-3 pb-2">
+          <div className="flex flex-row items-center justify-between">
+            <span className="mt-1 text-2xl tracking-tighter font-bold">Wire Finder Map</span>
+            <SidebarTrigger />
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (searchInput.trim()) setSearchQuery(searchInput.trim());
+            }}
+            className="flex gap-1.5"
+          >
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="장소명 또는 주소 검색"
+              className="flex-1 rounded border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              type="submit"
+              className="rounded border border-input bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 transition-colors"
+            >
+              검색
+            </button>
+          </form>
         </SidebarHeader>
         <SidebarContent className="flex-1 flex flex-col min-h-0">
           <SidebarGroup>
@@ -199,7 +226,7 @@ export default function Home() {
                   vworldMode ? "bg-teal-700 text-white border-teal-700" : "bg-white text-[#333] hover:bg-gray-100"
                 }`}
               >
-                배전선로 뷰어
+                지번별 배전선로 표시
               </button>
               <button
                 type="button"
@@ -304,6 +331,8 @@ export default function Home() {
           geojson={geojson}
           points={essPoints}
           arrows={essArrows}
+          powerPlantPoints={POWER_PLANT_POINTS}
+          searchQuery={searchQuery}
           onPipClose={() => setRoadviewOpen(false)}
           onPipOpen={() => setRoadviewOpen(true)}
         />

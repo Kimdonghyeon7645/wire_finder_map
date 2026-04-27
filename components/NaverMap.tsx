@@ -1,7 +1,11 @@
+/** biome-ignore-all lint/correctness/useExhaustiveDependencies: <explanation> */
+/** biome-ignore-all lint/suspicious/noArrayIndexKey: <explanation> */
+/** biome-ignore-all lint/suspicious/useIterableCallbackReturn: <explanation> */
 "use client";
 
-import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import { useEffect, useRef, useState } from "react";
+import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from "geojson";
+import Supercluster from "supercluster";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const CADASTRAL_MIN_ZOOM = 18;
 
@@ -98,9 +102,7 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
 
       for (const feature of features) {
         const { type, coordinates } = feature.geometry;
-        const rings: number[][][][] = type === "Polygon"
-          ? [coordinates as number[][][]]
-          : (coordinates as number[][][][]);
+        const rings: number[][][][] = type === "Polygon" ? [coordinates as number[][][]] : (coordinates as number[][][][]);
 
         const props = feature.properties ?? {};
         const sido = String(props.sido_nm ?? "");
@@ -110,9 +112,7 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
         const jibunRaw = String(props.jibun ?? "");
         const jibun = jibunRaw.replace(/[가-힣]+$/, "");
         const jimok = String(props.jimok ?? "");
-        const key = sido && sgg && emd && jibun
-          ? `${sido}_${sgg}_${emd}_${ri}_${jibun}`
-          : "";
+        const key = sido && sgg && emd && jibun ? `${sido}_${sgg}_${emd}_${ri}_${jibun}` : "";
 
         for (const ring of rings) {
           const [outer, ...holes] = ring;
@@ -134,9 +134,7 @@ class VWorldCadastralLayer implements VWorldOverlayInstance {
         const chunks: string[][] = [];
         for (let i = 0; i < uncachedKeys.length; i += BATCH) chunks.push(uncachedKeys.slice(i, i + BATCH));
         const batches = await Promise.all(
-          chunks.map((c) =>
-            fetch(`/api/parcel?keys=${encodeURIComponent(c.join(","))}`, { signal }).then((r) => r.json()),
-          ),
+          chunks.map((c) => fetch(`/api/parcel?keys=${encodeURIComponent(c.join(","))}`, { signal }).then((r) => r.json())),
         );
         const fetched: Record<string, ParcelInfo> = Object.assign({}, ...batches);
         for (const [k, v] of Object.entries(fetched)) this._parcelCache.set(k, v);
@@ -205,6 +203,35 @@ export interface EssArrow {
   to: { lat: number; lon: number };
 }
 
+export interface PowerPlantPoint {
+  id: string;
+  lat: number;
+  lng: number;
+  coordinates: [number, number];
+  plantCount: number;
+  addressCount: number;
+  totalCapacityKw: number;
+  addresses: string[];
+  firstPlantName: string;
+}
+
+interface PowerPlantDetail extends PowerPlantPoint {
+  plants: {
+    name?: string;
+    type?: string;
+    capacityKw?: number | null;
+    region?: string;
+    address?: string;
+    originalAddress?: string;
+    permitNo?: string;
+    permitDate?: string;
+    constructionReportDate?: string;
+    businessStartDate?: string;
+    preparationFrom?: string;
+    preparationTo?: string;
+  }[];
+}
+
 interface NaverMapProps {
   center?: { lat: number; lng: number };
   zoom?: number;
@@ -217,6 +244,8 @@ interface NaverMapProps {
   geojson?: FeatureCollection | null;
   points?: EssPoint[];
   arrows?: EssArrow[];
+  powerPlantPoints?: PowerPlantPoint[];
+  searchQuery?: string;
   onPipClose?: () => void;
   onPipOpen?: () => void;
 }
@@ -240,6 +269,69 @@ function escapeHtml(value: unknown): string {
 }
 
 type Overlay = { polygons: naver.maps.Polygon[]; markers: naver.maps.Marker[] };
+
+type PowerPlantFeatureProps = {
+  id: string;
+  label: string;
+  plantCount: number;
+  addressCount: number;
+  totalCapacityKw: number;
+};
+
+type PowerPlantClusterProps = {
+  id?: string;
+  label?: string;
+  plantCount: number;
+  addressCount: number;
+  totalCapacityKw: number;
+};
+
+function isPowerPlantCluster(
+  props:
+    | PowerPlantFeatureProps
+    | (PowerPlantClusterProps & {
+        cluster: true;
+        cluster_id: number;
+        point_count: number;
+        point_count_abbreviated: string | number;
+      }),
+): props is PowerPlantClusterProps & {
+  cluster: true;
+  cluster_id: number;
+  point_count: number;
+  point_count_abbreviated: string | number;
+} {
+  return "cluster" in props && props.cluster === true;
+}
+
+function powerPlantMarkerContent(label: string, variant: "plant" | "plant-cluster") {
+  const style =
+    "--pin-accent:#16a34a;--pin-accent-soft:rgba(22,163,74,0.22);--pin-label-bg:rgba(22,163,74,0.92);--pin-label-border:rgba(255,255,255,0.42);--pin-label-text:#fff;";
+  if (variant === "plant-cluster") {
+    return `<div class="plant-cluster-marker">${escapeHtml(label)}</div>`;
+  }
+  return `<div class="map-pin map-pin--plant" style="${style}"><div class="map-pin__label"><span class="map-pin__symbol">☀</span><span class="map-pin__text">${escapeHtml(label)}</span></div><div class="map-pin__stem"></div><div class="map-pin__point"></div></div>`;
+}
+
+function powerPlantLabel(point: PowerPlantPoint) {
+  const firstName = point.firstPlantName || "발전소";
+  if (point.plantCount <= 1) return firstName;
+  return `${firstName} 외 ${(point.plantCount - 1).toLocaleString()}개`;
+}
+
+function formatKw(value: number | null | undefined) {
+  if (!Number.isFinite(value ?? NaN)) return "-";
+  return `${Number(value).toLocaleString()} kW`;
+}
+
+function formatDate(value: string | undefined) {
+  const digits = String(value ?? "")
+    .trim()
+    .replace(/\.0+$/, "")
+    .replace(/\D/g, "");
+  if (digits.length !== 8) return value || "-";
+  return `${digits.slice(0, 4)}년 ${digits.slice(4, 6)}월 ${digits.slice(6, 8)}일`;
+}
 
 function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
   const polygons: naver.maps.Polygon[] = [];
@@ -269,6 +361,7 @@ function drawGeoJson(map: naver.maps.Map, geojson: FeatureCollection): Overlay {
           map,
           position: centroid(outer),
           title: properties?.name ?? undefined,
+          zIndex: 100,
           icon: {
             content: `<div class="map-pin map-pin--substation"><div class="map-pin__label"><span class="map-pin__symbol">●</span><span class="map-pin__text">${escapeHtml(properties?.name)}</span></div><div class="map-pin__stem"></div><div class="map-pin__point"></div></div>`,
             anchor: new naver.maps.Point(0, 0),
@@ -293,6 +386,8 @@ export default function NaverMap({
   geojson = null,
   points = [],
   arrows = [],
+  powerPlantPoints = [],
+  searchQuery,
   onPipClose,
   onPipOpen,
 }: NaverMapProps) {
@@ -304,9 +399,11 @@ export default function NaverMap({
   const markerRef = useRef<naver.maps.Marker | null>(null);
   const overlayRef = useRef<Overlay>({ polygons: [], markers: [] });
   const essMarkersRef = useRef<naver.maps.Marker[]>([]);
+  const powerPlantMarkersRef = useRef<naver.maps.Marker[]>([]);
   const arrowsRef = useRef<naver.maps.Polyline[]>([]);
   const cadastralLayerRef = useRef<naver.maps.CadastralLayer | null>(null);
   const vworldLayerRef = useRef<VWorldOverlayInstance | null>(null);
+  const searchMarkerRef = useRef<naver.maps.Marker | null>(null);
   const onPipOpenRef = useRef(onPipOpen);
   useEffect(() => {
     onPipOpenRef.current = onPipOpen;
@@ -314,6 +411,73 @@ export default function NaverMap({
 
   const [hasPano, setHasPano] = useState(false);
   const [mapZoom, setMapZoom] = useState(zoom);
+  const [mapReady, setMapReady] = useState(false);
+  const [selectedPowerPlantPoint, setSelectedPowerPlantPoint] = useState<PowerPlantDetail | null>(null);
+  const [loadingPowerPlantId, setLoadingPowerPlantId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!searchQuery || !mapReady) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    naver.maps.Service.geocode({ query: searchQuery }, (status, response) => {
+      if (status !== naver.maps.Service.Status.OK) return;
+      const item = response.v2?.addresses?.[0];
+      if (!item) return;
+
+      const lat = Number(item.y);
+      const lng = Number(item.x);
+      const coord = new naver.maps.LatLng(lat, lng);
+
+      map.setCenter(coord);
+      map.setZoom(15);
+
+      if (!searchMarkerRef.current) {
+        searchMarkerRef.current = new naver.maps.Marker({ position: coord, map });
+      } else {
+        searchMarkerRef.current.setPosition(coord);
+        searchMarkerRef.current.setMap(map);
+      }
+    });
+  }, [searchQuery, mapReady]);
+
+  const powerPlantIndex = useMemo(() => {
+    if (powerPlantPoints.length === 0) return null;
+
+    const features: Feature<Point, PowerPlantFeatureProps>[] = powerPlantPoints.map((point) => ({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: [point.lng, point.lat],
+      },
+      properties: {
+        id: point.id,
+        label: powerPlantLabel(point),
+        plantCount: point.plantCount,
+        addressCount: point.addressCount,
+        totalCapacityKw: point.totalCapacityKw,
+      },
+    }));
+
+    const index = new Supercluster<PowerPlantFeatureProps, PowerPlantClusterProps>({
+      radius: 112,
+      maxZoom: 17,
+      minPoints: 2,
+      map: (props) => ({
+        plantCount: props.plantCount,
+        addressCount: props.addressCount,
+        totalCapacityKw: props.totalCapacityKw,
+      }),
+      reduce: (acc, props) => {
+        acc.plantCount += props.plantCount;
+        acc.addressCount += props.addressCount;
+        acc.totalCapacityKw += props.totalCapacityKw;
+      },
+    });
+
+    index.load(features);
+    return index;
+  }, [powerPlantPoints]);
 
   useEffect(() => {
     function initMap() {
@@ -322,13 +486,10 @@ export default function NaverMap({
       const map = new naver.maps.Map(mapRef.current, {
         center: new naver.maps.LatLng(center.lat, center.lng),
         zoom,
-        zoomControl: true,
-        zoomControlOptions: {
-          position: naver.maps.Position.TOP_RIGHT,
-          style: naver.maps.ZoomControlStyle.SMALL,
-        },
+        zoomControl: false,
       });
       mapInstanceRef.current = map;
+      setMapReady(true);
       naver.maps.Event.addListener(map, "zoom_changed", () => setMapZoom(map.getZoom()));
 
       const streetLayer = new naver.maps.StreetLayer();
@@ -375,6 +536,99 @@ export default function NaverMap({
       return () => clearInterval(id);
     }
   }, [center.lat, center.lng, zoom]);
+
+  // 발전소 포인트 클러스터 렌더링
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !powerPlantIndex) return;
+
+    let drawTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearMarkers() {
+      powerPlantMarkersRef.current.forEach((m) => {
+        m.setMap(null);
+      });
+      powerPlantMarkersRef.current = [];
+    }
+
+    function draw() {
+      const currentMap = mapInstanceRef.current;
+      if (!currentMap || !powerPlantIndex) return;
+
+      const bounds = currentMap.getBounds() as naver.maps.LatLngBounds;
+      const sw = bounds.getSW();
+      const ne = bounds.getNE();
+      const zoomLevel = Math.round(currentMap.getZoom());
+      const clusters = powerPlantIndex.getClusters([sw.lng(), sw.lat(), ne.lng(), ne.lat()], zoomLevel);
+
+      clearMarkers();
+      powerPlantMarkersRef.current = clusters.map((cluster) => {
+        const [lng, lat] = cluster.geometry.coordinates;
+        const props = cluster.properties;
+        const isCluster = isPowerPlantCluster(props);
+        const label = isCluster ? props.plantCount.toLocaleString() : props.label || `${props.plantCount.toLocaleString()}개 발전소`;
+
+        const marker = new naver.maps.Marker({
+          map: currentMap,
+          position: new naver.maps.LatLng(lat, lng),
+          title: isCluster ? `${props.plantCount.toLocaleString()}개 발전소` : label,
+          zIndex: isCluster ? 10 : 15,
+          icon: {
+            content: powerPlantMarkerContent(label, isCluster ? "plant-cluster" : "plant"),
+            anchor: new naver.maps.Point(0, 0),
+          },
+        });
+
+        if (isCluster) {
+          naver.maps.Event.addListener(marker, "click", () => {
+            const expansionZoom = Math.min(powerPlantIndex.getClusterExpansionZoom(props.cluster_id), 18);
+            currentMap.setCenter(new naver.maps.LatLng(lat, lng));
+            currentMap.setZoom(expansionZoom);
+          });
+        } else {
+          naver.maps.Event.addListener(marker, "click", () => {
+            setLoadingPowerPlantId(props.id);
+            fetch(`/api/power-plant-points/${encodeURIComponent(props.id)}`)
+              .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json() as Promise<PowerPlantDetail>;
+              })
+              .then((detail) => {
+                setSelectedPowerPlantPoint(detail);
+              })
+              .catch((err) => {
+                console.error("[PowerPlantDetail]", err);
+                setSelectedPowerPlantPoint(null);
+              })
+              .finally(() => {
+                setLoadingPowerPlantId(null);
+              });
+          });
+        }
+
+        return marker;
+      });
+    }
+
+    function requestDraw(delay = 0) {
+      if (drawTimer) clearTimeout(drawTimer);
+      drawTimer = setTimeout(draw, delay);
+    }
+
+    const listeners = [
+      naver.maps.Event.addListener(map, "dragend", () => requestDraw()),
+      naver.maps.Event.addListener(map, "zoom_changed", () => requestDraw(120)),
+      naver.maps.Event.addListener(map, "size_changed", () => requestDraw()),
+    ];
+
+    requestDraw();
+
+    return () => {
+      if (drawTimer) clearTimeout(drawTimer);
+      listeners.forEach((listener) => naver.maps.Event.removeListener(listener));
+      clearMarkers();
+    };
+  }, [mapReady, powerPlantIndex]);
 
   // 위성 모드 전환
   useEffect(() => {
@@ -431,20 +685,20 @@ export default function NaverMap({
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    arrowsRef.current.forEach((l) => { l.setMap(null); });
-    arrowsRef.current = arrows.map((a) =>
-      new naver.maps.Polyline({
-        map,
-        path: [
-          new naver.maps.LatLng(a.from.lat, a.from.lon),
-          new naver.maps.LatLng(a.to.lat, a.to.lon),
-        ],
-        strokeColor: "#3b82f6",
-        strokeOpacity: 0.5,
-        strokeWeight: 9,
-        endIcon: naver.maps.PointingIcon.BLOCK_ARROW,
-        endIconSize: 20,
-      })
+    arrowsRef.current.forEach((l) => {
+      l.setMap(null);
+    });
+    arrowsRef.current = arrows.map(
+      (a) =>
+        new naver.maps.Polyline({
+          map,
+          path: [new naver.maps.LatLng(a.from.lat, a.from.lon), new naver.maps.LatLng(a.to.lat, a.to.lon)],
+          strokeColor: "#3b82f6",
+          strokeOpacity: 0.5,
+          strokeWeight: 9,
+          endIcon: naver.maps.PointingIcon.BLOCK_ARROW,
+          endIconSize: 20,
+        }),
     );
   }, [arrows]);
 
@@ -453,16 +707,20 @@ export default function NaverMap({
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    essMarkersRef.current.forEach((m) => { m.setMap(null); });
-    essMarkersRef.current = points.map((p) =>
-      new naver.maps.Marker({
-        map,
-        position: new naver.maps.LatLng(p.lat, p.lon),
-        icon: {
-          content: `<div class="map-pin map-pin--line"><div class="map-pin__label"><span class="map-pin__symbol">•</span><span class="map-pin__text">${escapeHtml(p.label)}</span></div><div class="map-pin__stem"></div><div class="map-pin__point"></div></div>`,
-          anchor: new naver.maps.Point(0, 0),
-        },
-      })
+    essMarkersRef.current.forEach((m) => {
+      m.setMap(null);
+    });
+    essMarkersRef.current = points.map(
+      (p) =>
+        new naver.maps.Marker({
+          map,
+          position: new naver.maps.LatLng(p.lat, p.lon),
+          zIndex: 110,
+          icon: {
+            content: `<div class="map-pin map-pin--line"><div class="map-pin__label"><span class="map-pin__symbol">•</span><span class="map-pin__text">${escapeHtml(p.label)}</span></div><div class="map-pin__stem"></div><div class="map-pin__point"></div></div>`,
+            anchor: new naver.maps.Point(0, 0),
+          },
+        }),
     );
   }, [points, darkMode]);
 
@@ -484,10 +742,82 @@ export default function NaverMap({
         <div className="text-xl">지도를 불러오는 중입니다...</div>
         <div className="text-md">최대 몇초간 로딩이 소요될 수 있습니다.</div>
       </div>
-      <div ref={mapRef} className={`w-full h-full${darkMode ? " dark-map" : ""}`} style={darkMode ? { filter: "invert(90%) hue-rotate(180deg)" } : undefined} />
+      <div
+        ref={mapRef}
+        className={`w-full h-full${darkMode ? " dark-map" : ""}`}
+        style={darkMode ? { filter: "invert(90%) hue-rotate(180deg)" } : undefined}
+      />
       {vworldMode && mapZoom < CADASTRAL_MIN_ZOOM && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-full bg-black/70 text-white text-sm whitespace-nowrap pointer-events-none">
           현재 줌레벨에서는 지적도 조회를 지원하지 않습니다
+        </div>
+      )}
+      {(selectedPowerPlantPoint || loadingPowerPlantId) && (
+        <div className="absolute top-3 right-3 z-30 w-[min(760px,calc(100%-24px))] max-h-[58vh] rounded-md border border-black/10 bg-white/95 shadow-lg backdrop-blur-sm">
+          <div className="flex items-start justify-between gap-3 border-b border-black/10 px-4 pt-2 pb-1.5">
+            <div className="min-w-0 pt-0.5">
+              {selectedPowerPlantPoint ? (
+                <div className="flex items-baseline gap-2 truncate tracking-tight">
+                  <span className="shrink-0 font-bold text-gray-900">
+                    {selectedPowerPlantPoint.plantCount.toLocaleString()}개 발전소 · 총 {formatKw(selectedPowerPlantPoint.totalCapacityKw)}
+                  </span>
+                  <span className="truncate text-gray-500">{selectedPowerPlantPoint.addresses.join(", ")}</span>
+                </div>
+              ) : (
+                <div className="text-sm font-bold text-gray-900">발전소 정보를 불러오는 중...</div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedPowerPlantPoint(null);
+                setLoadingPowerPlantId(null);
+              }}
+              className="shrink-0 rounded px-2 py-1 text-sm font-bold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+            >
+              ✕
+            </button>
+          </div>
+          {selectedPowerPlantPoint ? (
+            <div className="max-h-[calc(58vh-86px)] overflow-auto">
+              <table className="min-w-[1120px] text-left text-[0.85rem]">
+                <thead className="sticky top-0 bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">기초</th>
+                    <th className="min-w-[110px] px-3 py-2 font-semibold">기존인허가번호</th>
+                    <th className="px-3 py-2 font-semibold">인허가일자</th>
+                    <th className="px-3 py-2 font-semibold">법인(상호)명</th>
+                    <th className="min-w-[110px] px-3 py-2 font-semibold">설비용량(KW)</th>
+                    <th className="min-w-[100px] px-3 py-2 font-semibold">공사신고일</th>
+                    <th className="min-w-[100px] px-3 py-2 font-semibold">사업개시일</th>
+                    <th className="px-3 py-2 font-semibold">사업준비기간</th>
+                    <th className="px-3 py-2 font-semibold">주소</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {selectedPowerPlantPoint.plants.map((plant, idx) => (
+                    <tr key={`${plant.permitNo ?? plant.name ?? "plant"}-${idx}`} className="align-top">
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-700">{plant.region || "-"}</td>
+                      <td className="min-w-[110px] whitespace-nowrap px-3 py-2 text-gray-700">{plant.permitNo || "-"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-700">{formatDate(plant.permitDate)}</td>
+                      <td className="min-w-[180px] px-3 py-2 font-medium text-gray-900">{plant.name || "-"}</td>
+                      <td className="min-w-[110px] whitespace-nowrap px-3 py-2 text-gray-700">{plant.capacityKw ?? "-"}</td>
+                      <td className="min-w-[100px] whitespace-nowrap px-3 py-2 text-gray-700">
+                        {formatDate(plant.constructionReportDate)}
+                      </td>
+                      <td className="min-w-[100px] whitespace-nowrap px-3 py-2 text-gray-700">{formatDate(plant.businessStartDate)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-700">
+                        {formatDate(plant.preparationFrom)} ~ {formatDate(plant.preparationTo)}
+                      </td>
+                      <td className="min-w-[300px] px-3 py-2 text-gray-600">{plant.originalAddress || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-sm text-gray-500">상세 데이터를 조회하고 있습니다.</div>
+          )}
         </div>
       )}
       {/* 거리뷰 PiP 패널 */}
